@@ -7,12 +7,15 @@ var HEADERS = {
   'Accept': 'application/json'
 };
 var MAX_ALTERNATES = 2;
+var DEBUG = true;
+function log() { if (DEBUG) console.log.apply(console, ['[frameXTV]'].concat([].slice.call(arguments))); }
 
 function call(base, provider) {
   var url = base + (provider ? '&provider=' + encodeURIComponent(provider) : '');
+  log('GET', url);
   return fetch(url, { headers: HEADERS })
-    .then(function (r) { return r.json(); })
-    .catch(function () { return null; });
+    .then(function (r) { log('HTTP', r.status, provider || 'default'); return r.json(); })
+    .catch(function (e) { log('ERROR', provider || 'default', String(e && e.message || e)); return null; });
 }
 
 function toStreams(data, mediaType) {
@@ -35,6 +38,7 @@ function toStreams(data, mediaType) {
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
+  log('getStreams', tmdbId, mediaType, season, episode);
   var isTv = mediaType === 'tv';
   var base = API + '?type=' + (isTv ? 'tv' : 'movie') + '&id=' + encodeURIComponent(tmdbId);
   if (isTv) base += '&season=' + (season || 1) + '&episode=' + (episode || 1);
@@ -48,9 +52,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
           if (!seen[s.url]) { seen[s.url] = 1; out.push(s); }
         });
       });
+      log('returning', out.length, 'streams');
       return out;
     });
-  }).catch(function () { return []; });
+  }).catch(function (e) { log('FATAL', String(e && e.message || e)); return []; });
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { getStreams: getStreams };
