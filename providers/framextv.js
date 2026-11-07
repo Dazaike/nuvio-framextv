@@ -8,16 +8,12 @@ var HEADERS = {
   'Accept': 'application/json'
 };
 var MAX_ALTERNATES = 3;   // extra frameXTV providers to query
-var MAX_CHECKED = 6;      // top-ranked candidates whose playlist is verified
-var CHECK_TIMEOUT_MS = 6000;
+// No network verification: a hung fetch inside Nuvio's plugin runtime left the stream list on "Finding streams...".
 var SHOW_ALL = false;     // true = also list every source after the Auto pick
 var DEBUG = true;
 function log() { if (DEBUG) console.log.apply(console, ['[frameXTV]'].concat([].slice.call(arguments))); }
 
-function withTimeout(promise, ms, fallback) {
-  if (typeof setTimeout !== 'function') return promise;
-  return Promise.race([promise, new Promise(function (resolve) { setTimeout(function () { resolve(fallback); }, ms); })]);
-}
+
 
 function call(base, provider) {
   var url = base + (provider ? '&provider=' + encodeURIComponent(provider) : '');
@@ -53,19 +49,10 @@ function score(c) {
   if (/hindi|dubbed|\bdub\b/i.test(decodeURIComponent(c.url.replace(/%(?![0-9a-f]{2})/gi, '%25')) + ' ' + text)) s -= 2000;
   if (c.type !== 'hls') s -= 100;
   if (c.subs.length) s += 50;
+  if (/\bVPS\b|Server 2/i.test(c.server)) s -= 300; // consistently dead in testing
   return s;
 }
 
-// A candidate is playable if its playlist answers with #EXTM3U.
-function verify(c) {
-  return withTimeout(
-    fetch(c.url, { headers: { 'Referer': 'https://framextv.cc/', 'User-Agent': HEADERS['User-Agent'] } })
-      .then(function (r) { return r.ok ? r.text() : ''; })
-      .then(function (t) { return /#EXTM3U/.test(t || ''); })
-      .catch(function () { return false; }),
-    CHECK_TIMEOUT_MS, false
-  ).then(function (ok) { log('verify', ok ? 'OK ' : 'BAD', c.server, c.quality); return ok; });
-}
 
 function toStream(c, label) {
   return {
@@ -98,16 +85,11 @@ function getStreams(tmdbId, mediaType, season, episode) {
       log('candidates', all.length);
       if (!all.length) return [];
 
-      var top = all.slice(0, MAX_CHECKED);
-      return Promise.all(top.map(verify)).then(function (oks) {
-        var best = null;
-        for (var i = 0; i < top.length; i++) { if (oks[i]) { best = top[i]; break; } }
-        if (!best) best = top[0]; // nothing verified: still offer the top-ranked one
-        log('best', best.server, best.quality);
-        var out = [toStream(best, 'frameXTV - Auto (Best)')];
-        if (SHOW_ALL) all.forEach(function (c) { if (c !== best) out.push(toStream(c)); });
-        return out;
-      });
+      var best = all[0];
+      log('best', best.server, best.quality);
+      var out = [toStream(best, 'frameXTV - Auto (Best)')];
+      if (SHOW_ALL) all.forEach(function (c) { if (c !== best) out.push(toStream(c)); });
+      return out;
     });
   }).catch(function (e) { log('FATAL', String(e && e.message || e)); return []; });
 }
