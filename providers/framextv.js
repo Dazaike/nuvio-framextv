@@ -1,4 +1,5 @@
 // frameXTV provider for Nuvio. Promise-based on purpose (no async/await).
+// Returns ONE "Auto" stream: the best working source out of everything frameXTV offers.
 var API = 'https://api.framextv.cc/api/stream';
 var HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
@@ -6,9 +7,17 @@ var HEADERS = {
   'Referer': 'https://framextv.cc/',
   'Accept': 'application/json'
 };
-var MAX_ALTERNATES = 2;
+var MAX_ALTERNATES = 3;   // extra frameXTV providers to query
+var MAX_CHECKED = 6;      // top-ranked candidates whose playlist is verified
+var CHECK_TIMEOUT_MS = 6000;
+var SHOW_ALL = false;     // true = also list every source after the Auto pick
 var DEBUG = true;
 function log() { if (DEBUG) console.log.apply(console, ['[frameXTV]'].concat([].slice.call(arguments))); }
+
+function withTimeout(promise, ms, fallback) {
+  if (typeof setTimeout !== 'function') return promise;
+  return Promise.race([promise, new Promise(function (resolve) { setTimeout(function () { resolve(fallback); }, ms); })]);
+}
 
 function call(base, provider) {
   var url = base + (provider ? '&provider=' + encodeURIComponent(provider) : '');
@@ -18,7 +27,8 @@ function call(base, provider) {
     .catch(function (e) { log('ERROR', provider || 'default', String(e && e.message || e)); return null; });
 }
 
-function toStreams(data, mediaType) {
+// Flatten API responses into candidate objects.
+function toCandidates(data) {
   if (!data || !data.success || !data.sources) return [];
   var subs = (data.subtitles || []).map(function (s) {
     return { url: s.url, label: s.label || s.language, lang: s.lang };
@@ -26,16 +36,47 @@ function toStreams(data, mediaType) {
   return data.sources
     .filter(function (s) { return s && s.url; })
     .map(function (s) {
-      return {
-        name: 'frameXTV - ' + (s.server || data.provider || 'stream'),
-        title: (s.server || data.provider || 'frameXTV') + (s.quality ? ' - ' + s.quality : '') + (subs.length ? ' | ' + subs.length + ' subs' : ''),
-        description: 'Provider: ' + (data.provider || '?') + ' | Server: ' + (s.server || '?') + ' | ' + (s.quality || 'Auto') + ' | ' + (s.type || 'hls'),
-        url: s.url,
-        quality: s.quality || 'Auto',
-        headers: { 'Referer': 'https://framextv.cc/' },
-        subtitles: subs
-      };
+      return { url: s.url, quality: s.quality || 'Auto', server: s.server || data.provider || 'frameXTV',
+               provider: data.provider || '?', type: s.type || 'hls', subs: subs };
     });
+}
+
+function height(c) {
+  var m = /(\d{3,4})\s*p/i.exec(c.quality);
+  return m ? parseInt(m[1], 10) : 720; // "Auto" = unknown, assume 720
+}
+
+function score(c) {
+  var text = c.server + ' ' + c.quality;
+  var s = height(c);
+  if (/english/i.test(text)) s += 500;
+  if (/hindi|dubbed|\bdub\b/i.test(decodeURIComponent(c.url.replace(/%(?![0-9a-f]{2})/gi, '%25')) + ' ' + text)) s -= 2000;
+  if (c.type !== 'hls') s -= 100;
+  if (c.subs.length) s += 50;
+  return s;
+}
+
+// A candidate is playable if its playlist answers with #EXTM3U.
+function verify(c) {
+  return withTimeout(
+    fetch(c.url, { headers: { 'Referer': 'https://framextv.cc/', 'User-Agent': HEADERS['User-Agent'] } })
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (t) { return /#EXTM3U/.test(t || ''); })
+      .catch(function () { return false; }),
+    CHECK_TIMEOUT_MS, false
+  ).then(function (ok) { log('verify', ok ? 'OK ' : 'BAD', c.server, c.quality); return ok; });
+}
+
+function toStream(c, label) {
+  return {
+    name: label || ('frameXTV - ' + c.server),
+    title: c.server + ' - ' + c.quality + (c.subs.length ? ' | ' + c.subs.length + ' subs' : ''),
+    description: 'Provider: ' + c.provider + ' | Server: ' + c.server + ' | ' + c.quality + ' | ' + c.type,
+    url: c.url,
+    quality: c.quality,
+    headers: { 'Referer': 'https://framextv.cc/' },
+    subtitles: c.subs
+  };
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
@@ -47,14 +88,26 @@ function getStreams(tmdbId, mediaType, season, episode) {
   return call(base).then(function (first) {
     var alts = (first && first.alternates ? first.alternates : []).slice(0, MAX_ALTERNATES);
     return Promise.all(alts.map(function (a) { return call(base, a); })).then(function (rest) {
-      var seen = {}, out = [];
+      var seen = {}, all = [];
       [first].concat(rest).forEach(function (d) {
-        toStreams(d, mediaType).forEach(function (s) {
-          if (!seen[s.url]) { seen[s.url] = 1; out.push(s); }
+        toCandidates(d).forEach(function (c) {
+          if (!seen[c.url]) { seen[c.url] = 1; all.push(c); }
         });
       });
-      log('returning', out.length, 'streams');
-      return out;
+      all.sort(function (a, b) { return score(b) - score(a); });
+      log('candidates', all.length);
+      if (!all.length) return [];
+
+      var top = all.slice(0, MAX_CHECKED);
+      return Promise.all(top.map(verify)).then(function (oks) {
+        var best = null;
+        for (var i = 0; i < top.length; i++) { if (oks[i]) { best = top[i]; break; } }
+        if (!best) best = top[0]; // nothing verified: still offer the top-ranked one
+        log('best', best.server, best.quality);
+        var out = [toStream(best, 'frameXTV - Auto (Best)')];
+        if (SHOW_ALL) all.forEach(function (c) { if (c !== best) out.push(toStream(c)); });
+        return out;
+      });
     });
   }).catch(function (e) { log('FATAL', String(e && e.message || e)); return []; });
 }
