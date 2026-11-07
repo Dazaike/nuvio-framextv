@@ -27,8 +27,9 @@ function toStreams(data, mediaType) {
     .filter(function (s) { return s && s.url; })
     .map(function (s) {
       return {
-        name: 'frameXTV',
-        title: (s.server || data.provider || 'frameXTV') + (s.quality ? ' - ' + s.quality : ''),
+        name: 'frameXTV - ' + (s.server || data.provider || 'stream'),
+        title: (s.server || data.provider || 'frameXTV') + (s.quality ? ' - ' + s.quality : '') + (subs.length ? ' | ' + subs.length + ' subs' : ''),
+        description: 'Provider: ' + (data.provider || '?') + ' | Server: ' + (s.server || '?') + ' | ' + (s.quality || 'Auto') + ' | ' + (s.type || 'hls'),
         url: s.url,
         quality: s.quality || 'Auto',
         headers: { 'Referer': 'https://framextv.cc/' },
