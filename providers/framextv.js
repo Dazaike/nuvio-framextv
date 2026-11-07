@@ -7,7 +7,8 @@ var HEADERS = {
   'Referer': 'https://framextv.cc/',
   'Accept': 'application/json'
 };
-var MAX_ALTERNATES = 3;   // extra frameXTV providers to query
+var KNOWN_PROVIDERS = ['giant', 'bowler', 'executioner', 'battle_copter']; // verified to serve real segments
+var MAX_ALTERNATES = 5;   // extra frameXTV providers to query
 // No network verification: a hung fetch inside Nuvio's plugin runtime left the stream list on "Finding streams...".
 var SHOW_ALL = false;     // true = also list every source after the Auto pick
 var DEBUG = true;
@@ -74,12 +75,16 @@ function getStreams(tmdbId, mediaType, season, episode) {
   if (isTv) base += '&season=' + (season || 1) + '&episode=' + (episode || 1);
 
   return call(base).then(function (first) {
-    var alts = (first && first.alternates ? first.alternates : []).slice(0, MAX_ALTERNATES);
+    var alts = [];
+    (first && first.alternates ? first.alternates : []).concat(KNOWN_PROVIDERS).forEach(function (a) {
+      if (a !== (first && first.provider) && alts.indexOf(a) < 0 && !/grand_warden/i.test(a)) alts.push(a);
+    });
+    alts = alts.slice(0, MAX_ALTERNATES);
     return Promise.all(alts.map(function (a) { return call(base, a); })).then(function (rest) {
       var seen = {}, all = [];
       [first].concat(rest).forEach(function (d) {
         toCandidates(d).forEach(function (c) {
-          if (!seen[c.url]) { seen[c.url] = 1; all.push(c); }
+          if (!seen[c.url] && !/grand_warden/i.test(c.provider)) { seen[c.url] = 1; all.push(c); }
         });
       });
       all.sort(function (a, b) { return score(b) - score(a); });
