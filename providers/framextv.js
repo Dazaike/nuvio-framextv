@@ -10,7 +10,7 @@ var HEADERS = {
 var KNOWN_PROVIDERS = ['giant', 'bowler', 'executioner', 'battle_copter']; // verified to serve real segments
 var MAX_ALTERNATES = 5;   // extra frameXTV providers to query
 // No network verification: a hung fetch inside Nuvio's plugin runtime left the stream list on "Finding streams...".
-var SHOW_ALL = false;     // true = also list every source after the Auto pick
+var SHOW_ALL = true;      // list every source after the Auto pick
 var DEBUG = true;
 function log() { if (DEBUG) console.log.apply(console, ['[frameXTV]'].concat([].slice.call(arguments))); }
 

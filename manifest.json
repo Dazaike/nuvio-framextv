@@ -1,13 +1,13 @@
 {
   "name": "frameXTV",
   "author": "local",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "scrapers": [
     {
       "id": "framextv",
       "name": "frameXTV",
       "description": "Movies and TV via the frameXTV stream API (HLS)",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "author": "local",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/framextv.js",
