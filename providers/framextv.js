@@ -49,6 +49,7 @@ function score(c) {
   if (/hindi|dubbed|\bdub\b/i.test(decodeURIComponent(c.url.replace(/%(?![0-9a-f]{2})/gi, '%25')) + ' ' + text)) s -= 2000;
   if (c.type !== 'hls') s -= 100;
   if (c.subs.length) s += 50;
+  if (/grand_warden/i.test(c.provider)) s -= 5000; // playlists load but segments redirect to an auth page (verified dead)
   if (/\bVPS\b|Server 2/i.test(c.server)) s -= 300; // consistently dead in testing
   return s;
 }
